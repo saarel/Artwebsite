@@ -29,18 +29,12 @@
 {@render children()}
 
 <style>
-	:global(::view-transition-old(root)),
-	:global(::view-transition-new(root)) {
-		animation-duration: 0.35s;
-		animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-	}
-
 	:global(::view-transition-old(root)) {
-		animation-name: -global-fade-out;
+		animation: -global-fade-out 280ms cubic-bezier(0.4, 0, 1, 1) both;
 	}
 
 	:global(::view-transition-new(root)) {
-		animation-name: -global-fade-in;
+		animation: -global-fade-in 520ms cubic-bezier(0.16, 1, 0.3, 1) both;
 	}
 
 	/* Nav indicator slides smoothly between active links */
@@ -51,12 +45,24 @@
 	}
 
 	@keyframes -global-fade-out {
-		from { opacity: 1; }
-		to { opacity: 0; }
+		from {
+			opacity: 1;
+			transform: translateY(0) scale(1);
+		}
+		to {
+			opacity: 0;
+			transform: translateY(-12px) scale(0.99);
+		}
 	}
 
 	@keyframes -global-fade-in {
-		from { opacity: 0; transform: translateY(6px); }
-		to { opacity: 1; transform: translateY(0); }
+		from {
+			opacity: 0;
+			transform: translateY(16px) scale(0.99);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0) scale(1);
+		}
 	}
 </style>

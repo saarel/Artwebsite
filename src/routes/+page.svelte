@@ -196,6 +196,7 @@
 	}
 
 	.cta {
+		position: relative;
 		display: inline-block;
 		margin-top: 2rem;
 		padding: 1rem 2rem;
@@ -205,12 +206,33 @@
 		font-size: 0.8rem;
 		letter-spacing: 0.2em;
 		text-transform: uppercase;
-		transition: all 150ms ease;
+		overflow: hidden;
+		isolation: isolate;
+		transition:
+			color 300ms cubic-bezier(0.4, 0, 0.2, 1),
+			transform 150ms ease;
+	}
+
+	.cta::before {
+		content: '';
+		position: absolute;
+		inset: 0;
+		background: #c8a571;
+		transform: translateX(-101%);
+		transition: transform 420ms cubic-bezier(0.4, 0, 0.2, 1);
+		z-index: -1;
 	}
 
 	.cta:hover {
-		background: #c8a571;
 		color: #fff;
+	}
+
+	.cta:hover::before {
+		transform: translateX(0);
+	}
+
+	.cta:active {
+		transform: scale(0.97);
 	}
 
 	/* ---- artwork ---- */

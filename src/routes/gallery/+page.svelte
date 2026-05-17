@@ -819,6 +819,9 @@
 		border: none;
 		cursor: pointer;
 		text-align: left;
+		font: inherit;
+		color: inherit;
+		-webkit-tap-highlight-color: transparent;
 		transition: transform 120ms ease;
 	}
 
