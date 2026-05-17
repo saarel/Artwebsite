@@ -99,20 +99,33 @@
 	}
 
 	.links a {
+		position: relative;
 		color: #555;
 		text-decoration: none;
 		font-size: 0.85rem;
 		letter-spacing: 0.15em;
 		text-transform: uppercase;
-		padding-bottom: 0.25rem;
-		border-bottom: 1px solid transparent;
-		transition: color 120ms ease, border-color 120ms ease;
+		padding-bottom: 0.35rem;
+		transition: color 180ms ease;
 	}
 
-	.links a:hover,
+	.links a:hover {
+		color: #1a2942;
+	}
+
 	.links a[aria-current='page'] {
 		color: #1a2942;
-		border-bottom-color: #c8a571;
+	}
+
+	.links a[aria-current='page']::after {
+		content: '';
+		position: absolute;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		height: 1.5px;
+		background: #c8a571;
+		view-transition-name: nav-indicator;
 	}
 
 	main {

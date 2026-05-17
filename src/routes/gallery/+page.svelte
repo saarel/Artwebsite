@@ -10,11 +10,69 @@
 	const MIN_MESSAGE_LENGTH = 10;
 
 	let { data } = $props();
-	const paintings = $derived<Painting[]>(data.paintings);
+	const allPaintings = $derived<Painting[]>(data.paintings);
+
+	let filter = $state<'all' | 'available' | 'unavailable'>('all');
+
+	let filterEls = $state<Record<string, HTMLButtonElement | undefined>>({});
+	let indicatorLeft = $state(0);
+	let indicatorWidth = $state(0);
+	let indicatorReady = $state(false);
+
+	function measureIndicator() {
+		const el = filterEls[filter];
+		if (!el) return;
+		indicatorLeft = el.offsetLeft;
+		indicatorWidth = el.offsetWidth;
+	}
+
+	$effect(() => {
+		// Track filter + ref availability so this re-runs when either changes.
+		void filter;
+		void filterEls[filter];
+		measureIndicator();
+	});
+
+	$effect(() => {
+		const container = filterEls.all?.parentElement;
+		if (!container) return;
+		measureIndicator();
+		// Enable the transition on the second frame so the initial position
+		// is set without animation.
+		requestAnimationFrame(() => requestAnimationFrame(() => (indicatorReady = true)));
+		const ro = new ResizeObserver(() => measureIndicator());
+		ro.observe(container);
+		window.addEventListener('resize', measureIndicator);
+		return () => {
+			ro.disconnect();
+			window.removeEventListener('resize', measureIndicator);
+		};
+	});
+
+	const paintings = $derived(
+		filter === 'all'
+			? allPaintings
+			: filter === 'available'
+				? allPaintings.filter((p) => p.avail)
+				: allPaintings.filter((p) => !p.avail)
+	);
+
+	const counts = $derived({
+		all: allPaintings.length,
+		available: allPaintings.filter((p) => p.avail).length,
+		unavailable: allPaintings.filter((p) => !p.avail).length
+	});
 
 	let selected = $state<Painting | null>(null);
 	let imageIndex = $state(0);
 	let showInquiry = $state(false);
+	let zoomed = $state(false);
+	let zoomOrigin = $state({ x: 50, y: 50 });
+	let pan = $state({ x: 0, y: 0 });
+	let isFullscreen = $state(false);
+	let dragging = $state(false);
+	let dragStart = { x: 0, y: 0, panX: 0, panY: 0 };
+	let didDrag = false;
 
 	let firstName = $state('');
 	let lastName = $state('');
@@ -110,6 +168,7 @@
 	function open(p: Painting) {
 		selected = p;
 		imageIndex = 0;
+		zoomed = false;
 		resetForm();
 		showInquiry = false;
 		// Defer mounting the inquiry form so the modal can paint immediately.
@@ -129,6 +188,26 @@
 			}
 		});
 	}
+
+	function toggleFullscreen(e: MouseEvent) {
+		e.stopPropagation();
+		if (document.fullscreenElement) {
+			document.exitFullscreen();
+			return;
+		}
+		const carousel = (e.currentTarget as HTMLElement).closest('.carousel') as HTMLElement | null;
+		if (carousel?.requestFullscreen) {
+			carousel.requestFullscreen().catch(() => {});
+		}
+	}
+
+	onMount(() => {
+		const handler = () => {
+			isFullscreen = !!document.fullscreenElement;
+		};
+		document.addEventListener('fullscreenchange', handler);
+		return () => document.removeEventListener('fullscreenchange', handler);
+	});
 
 	async function submitInquiry(e: SubmitEvent) {
 		e.preventDefault();
@@ -159,11 +238,65 @@
 	function next() {
 		if (!selected) return;
 		imageIndex = (imageIndex + 1) % selected.images.length;
+		unzoom();
 	}
 
 	function prev() {
 		if (!selected) return;
 		imageIndex = (imageIndex - 1 + selected.images.length) % selected.images.length;
+		unzoom();
+	}
+
+	function zoomAtPoint(e: MouseEvent) {
+		const img = e.currentTarget as HTMLImageElement;
+		const rect = img.getBoundingClientRect();
+		zoomOrigin = {
+			x: ((e.clientX - rect.left) / rect.width) * 100,
+			y: ((e.clientY - rect.top) / rect.height) * 100
+		};
+		pan = { x: 0, y: 0 };
+		zoomed = !zoomed;
+	}
+
+	function unzoom() {
+		zoomed = false;
+		pan = { x: 0, y: 0 };
+	}
+
+	function onImagePointerDown(e: PointerEvent) {
+		if (!zoomed) return;
+		e.preventDefault();
+		const img = e.currentTarget as HTMLImageElement;
+		img.setPointerCapture(e.pointerId);
+		dragging = true;
+		didDrag = false;
+		dragStart = { x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y };
+	}
+
+	function onImagePointerMove(e: PointerEvent) {
+		if (!dragging) return;
+		const dx = e.clientX - dragStart.x;
+		const dy = e.clientY - dragStart.y;
+		if (Math.abs(dx) > 4 || Math.abs(dy) > 4) didDrag = true;
+		pan = { x: dragStart.panX + dx, y: dragStart.panY + dy };
+	}
+
+	function onImagePointerUp(e: PointerEvent) {
+		const img = e.currentTarget as HTMLImageElement;
+		try {
+			img.releasePointerCapture(e.pointerId);
+		} catch {
+			/* noop */
+		}
+		dragging = false;
+	}
+
+	function onImageClick(e: MouseEvent) {
+		if (didDrag) {
+			didDrag = false;
+			return;
+		}
+		zoomAtPoint(e);
 	}
 
 	function onKey(e: KeyboardEvent) {
@@ -193,12 +326,63 @@
 
 <header>
 	<h1>Gallery</h1>
+	{#if allPaintings.length > 0}
+		<div class="filters" role="tablist" aria-label="Filter by availability">
+			<div
+				class="indicator"
+				class:ready={indicatorReady}
+				style="transform: translateX({indicatorLeft}px); width: {indicatorWidth}px;"
+				aria-hidden="true"
+			></div>
+			<button
+				bind:this={filterEls.all}
+				type="button"
+				class="filter-btn"
+				class:active={filter === 'all'}
+				role="tab"
+				aria-selected={filter === 'all'}
+				onclick={() => (filter = 'all')}
+			>
+				All <span class="count">{counts.all}</span>
+			</button>
+			<button
+				bind:this={filterEls.available}
+				type="button"
+				class="filter-btn"
+				class:active={filter === 'available'}
+				role="tab"
+				aria-selected={filter === 'available'}
+				onclick={() => (filter = 'available')}
+			>
+				Available <span class="count">{counts.available}</span>
+			</button>
+			<button
+				bind:this={filterEls.unavailable}
+				type="button"
+				class="filter-btn"
+				class:active={filter === 'unavailable'}
+				role="tab"
+				aria-selected={filter === 'unavailable'}
+				onclick={() => (filter = 'unavailable')}
+			>
+				No longer available <span class="count">{counts.unavailable}</span>
+			</button>
+		</div>
+	{/if}
 </header>
 
 {#if data.error}
 	<p class="error">Could not load paintings: {data.error}</p>
 {:else if paintings.length === 0}
-	<p class="empty">Art coming soon.</p>
+	<p class="empty">
+		{#if allPaintings.length === 0}
+			Art coming soon.
+		{:else if filter === 'available'}
+			Nothing currently available.
+		{:else}
+			No pieces here yet.
+		{/if}
+	</p>
 {:else}
 	<div class="masonry">
 		{#each paintings as p, i (p.id)}
@@ -246,11 +430,97 @@
 					<button class="nav prev" onclick={prev} aria-label="Previous image">‹</button>
 				{/if}
 
-				<img src={selected.images[imageIndex]} alt={selected.title} />
+				<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+				<img
+					src={selected.images[imageIndex]}
+					alt={selected.title}
+					draggable="false"
+					onclick={onImageClick}
+					ondblclick={unzoom}
+					onpointerdown={onImagePointerDown}
+					onpointermove={onImagePointerMove}
+					onpointerup={onImagePointerUp}
+					ondragstart={(e) => e.preventDefault()}
+					oncontextmenu={(e) => e.preventDefault()}
+					class="zoomable"
+					class:zoomed
+					class:dragging
+					style="transform-origin: {zoomOrigin.x}% {zoomOrigin.y}%; transform: {zoomed
+						? `translate(${pan.x}px, ${pan.y}px) scale(2.2)`
+						: ''};"
+				/>
+
+				{#if zoomed}
+					<button
+						class="unzoom-btn"
+						onclick={(e) => {
+							e.stopPropagation();
+							unzoom();
+						}}
+						aria-label="Reset zoom"
+					>
+						<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+							<path
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								d="M5 12h14"
+							/>
+							<circle
+								cx="11"
+								cy="11"
+								r="6"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+							/>
+							<path
+								d="M15.5 15.5l4 4"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+							/>
+						</svg>
+					</button>
+				{/if}
 
 				{#if selected.images.length > 1}
 					<button class="nav next" onclick={next} aria-label="Next image">›</button>
 				{/if}
+
+				<button
+					class="fullscreen-btn"
+					class:in-fullscreen={isFullscreen}
+					onclick={toggleFullscreen}
+					aria-label={isFullscreen ? 'Exit fullscreen' : 'View fullscreen'}
+				>
+					{#if isFullscreen}
+						<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+							<path
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								d="M6 6l12 12 M18 6L6 18"
+							/>
+						</svg>
+					{:else}
+						<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+							<path
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								d="M4 10V4h6 M14 4h6v6 M20 14v6h-6 M10 20H4v-6"
+							/>
+						</svg>
+					{/if}
+				</button>
 			</div>
 
 			{#if selected.images.length > 1}
@@ -393,20 +663,33 @@
 	}
 
 	.links a {
+		position: relative;
 		color: #555;
 		text-decoration: none;
 		font-size: 0.85rem;
 		letter-spacing: 0.15em;
 		text-transform: uppercase;
-		padding-bottom: 0.25rem;
-		border-bottom: 1px solid transparent;
-		transition: color 120ms ease, border-color 120ms ease;
+		padding-bottom: 0.35rem;
+		transition: color 180ms ease;
 	}
 
-	.links a:hover,
+	.links a:hover {
+		color: #1a2942;
+	}
+
 	.links a[aria-current='page'] {
 		color: #1a2942;
-		border-bottom-color: #c8a571;
+	}
+
+	.links a[aria-current='page']::after {
+		content: '';
+		position: absolute;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		height: 1.5px;
+		background: #c8a571;
+		view-transition-name: nav-indicator;
 	}
 
 	@media (max-width: 900px) {
@@ -420,8 +703,12 @@
 	}
 
 	header {
-		padding: 1rem 1.5rem 1rem;
+		padding: 1rem 1.5rem 0.5rem;
 		text-align: center;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 1.25rem;
 	}
 
 	h1 {
@@ -429,6 +716,71 @@
 		font-weight: 400;
 		letter-spacing: 0.05em;
 		margin: 0;
+	}
+
+	.filters {
+		position: relative;
+		display: inline-flex;
+		gap: 0.2rem;
+		background: #ebe7df;
+		padding: 0.2rem;
+		border-radius: 999px;
+		justify-content: center;
+	}
+
+	.indicator {
+		position: absolute;
+		top: 0.2rem;
+		bottom: 0.2rem;
+		left: 0;
+		background: #c8a571;
+		border-radius: 999px;
+		box-shadow: 0 1px 4px rgba(200, 165, 113, 0.4);
+		z-index: 0;
+		pointer-events: none;
+		will-change: transform, width;
+	}
+
+	.indicator.ready {
+		transition:
+			transform 380ms cubic-bezier(0.4, 1.15, 0.55, 1),
+			width 380ms cubic-bezier(0.4, 1.15, 0.55, 1);
+	}
+
+	.filter-btn {
+		position: relative;
+		z-index: 1;
+		background: none;
+		border: none;
+		padding: 0.3rem 0.75rem;
+		border-radius: 999px;
+		cursor: pointer;
+		font: 500 0.75rem -apple-system, sans-serif;
+		color: #777;
+		display: inline-flex;
+		align-items: center;
+		gap: 0.3rem;
+		transition: color 200ms ease;
+		white-space: nowrap;
+	}
+
+	.filter-btn:hover {
+		color: #1a1a1a;
+	}
+
+	.filter-btn.active {
+		color: #fff;
+	}
+
+	.filter-btn .count {
+		font-size: 0.68rem;
+		color: #999;
+		font-weight: 400;
+		transition: color 200ms ease;
+	}
+
+	.filter-btn.active .count {
+		color: rgba(255, 255, 255, 0.8);
 	}
 
 	.error,
@@ -517,6 +869,7 @@
 		justify-content: center;
 		z-index: 1000;
 		padding: 1rem;
+		animation: backdrop-in 200ms ease-out both;
 	}
 
 	.modal {
@@ -529,32 +882,67 @@
 		position: relative;
 		display: flex;
 		flex-direction: column;
+		animation: modal-in 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
+	}
+
+	@keyframes backdrop-in {
+		from { opacity: 0; }
+		to { opacity: 1; }
+	}
+
+	@keyframes modal-in {
+		from {
+			opacity: 0;
+			transform: scale(0.96) translateY(10px);
+		}
+		to {
+			opacity: 1;
+			transform: scale(1) translateY(0);
+		}
 	}
 
 	.close {
 		position: absolute;
-		top: 0.5rem;
+		top: 0.75rem;
 		right: 0.75rem;
-		background: none;
-		border: none;
-		font-size: 2rem;
+		width: 2.2rem;
+		height: 2.2rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: rgba(255, 255, 255, 0.95);
+		border: 1px solid #e0dcd4;
+		border-radius: 50%;
+		font-size: 1.4rem;
 		line-height: 1;
 		cursor: pointer;
-		color: #333;
-		z-index: 2;
+		color: #1a1a1a;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+		transition: background 120ms ease;
+		z-index: 3;
+		padding: 0;
+	}
+
+	.close:hover {
+		background: #fff;
 	}
 
 	.carousel {
 		position: relative;
-		background: #111;
+		background: #fff;
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		padding: 1rem;
+		overflow: hidden;
+		flex-shrink: 0;
 	}
 
 	.carousel img {
 		max-width: 100%;
 		max-height: 75vh;
+		width: auto;
+		height: auto;
 		object-fit: contain;
 		display: block;
 	}
@@ -563,8 +951,8 @@
 		position: absolute;
 		top: 50%;
 		transform: translateY(-50%);
-		background: rgba(255, 255, 255, 0.85);
-		border: none;
+		background: rgba(255, 255, 255, 0.95);
+		border: 1px solid #e0dcd4;
 		font-size: 2rem;
 		width: 2.5rem;
 		height: 2.5rem;
@@ -573,6 +961,99 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		color: #1a1a1a;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+		transition: background 120ms ease;
+	}
+
+	.nav:hover {
+		background: #fff;
+	}
+
+	.zoomable {
+		cursor: zoom-in;
+		transition: transform 250ms ease;
+		will-change: transform;
+		user-select: none;
+		touch-action: none;
+	}
+
+	.zoomable.zoomed {
+		cursor: grab;
+	}
+
+	.zoomable.zoomed.dragging {
+		cursor: grabbing;
+		transition: none;
+	}
+
+	.fullscreen-btn {
+		position: absolute;
+		bottom: 0.75rem;
+		right: 0.75rem;
+		width: 2.2rem;
+		height: 2.2rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: rgba(255, 255, 255, 0.92);
+		border: 1px solid #e0dcd4;
+		border-radius: 50%;
+		cursor: pointer;
+		color: #1a1a1a;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+		transition: background 120ms ease;
+		padding: 0;
+	}
+
+	.fullscreen-btn:hover {
+		background: #fff;
+	}
+
+	.unzoom-btn {
+		position: absolute;
+		bottom: 0.75rem;
+		left: 0.75rem;
+		width: 2.2rem;
+		height: 2.2rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: rgba(255, 255, 255, 0.95);
+		border: 1px solid #e0dcd4;
+		border-radius: 50%;
+		cursor: pointer;
+		color: #1a1a1a;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+		transition: background 120ms ease;
+		padding: 0;
+		z-index: 3;
+	}
+
+	.unzoom-btn:hover {
+		background: #fff;
+	}
+
+	.carousel:fullscreen {
+		background: #000;
+		padding: 0;
+		width: 100vw;
+		height: 100vh;
+	}
+
+	.carousel:fullscreen img {
+		max-width: 100vw;
+		max-height: 100vh;
+	}
+
+	.fullscreen-btn.in-fullscreen {
+		background: rgba(255, 255, 255, 0.95);
+		color: #1a1a1a;
+		width: 2.6rem;
+		height: 2.6rem;
+		top: 1rem;
+		right: 1rem;
+		bottom: auto;
 	}
 
 	.nav.prev { left: 0.75rem; }
@@ -671,12 +1152,12 @@
 	}
 
 	.submit {
-		align-self: flex-start;
-		padding: 0.6rem 1.4rem;
+		align-self: center;
+		padding: 0.65rem 2rem;
 		background: #111;
 		color: #fff;
 		border: none;
-		border-radius: 3px;
+		border-radius: 999px;
 		cursor: pointer;
 		font: inherit;
 		transition: background 120ms ease;

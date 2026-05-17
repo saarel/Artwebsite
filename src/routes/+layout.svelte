@@ -43,6 +43,13 @@
 		animation-name: -global-fade-in;
 	}
 
+	/* Nav indicator slides smoothly between active links */
+	:global(::view-transition-old(nav-indicator)),
+	:global(::view-transition-new(nav-indicator)) {
+		animation-duration: 0.4s;
+		animation-timing-function: cubic-bezier(0.4, 1.15, 0.55, 1);
+	}
+
 	@keyframes -global-fade-out {
 		from { opacity: 1; }
 		to { opacity: 0; }

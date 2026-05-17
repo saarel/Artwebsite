@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
+	import { slide } from 'svelte/transition';
 	import { supabase } from '$lib/supabase';
 	import { uploadImages, deleteImagesByUrl, type UploadProgress } from '$lib/admin';
 	import type { Painting, Inquiry } from '$lib/types';
@@ -49,6 +50,16 @@
 
 	// --- upload progress (shared by new + edit) ---
 	let progress = $state<UploadProgress | null>(null);
+
+	// --- toast ---
+	let toast = $state<string | null>(null);
+	let toastTimer: ReturnType<typeof setTimeout> | null = null;
+
+	function showToast(message: string) {
+		toast = message;
+		if (toastTimer) clearTimeout(toastTimer);
+		toastTimer = setTimeout(() => (toast = null), 3500);
+	}
 
 	// --- inquiry expansion ---
 	let expandedInquiryId = $state<string | null>(null);
@@ -116,6 +127,7 @@
 			newDescription = '';
 			newFiles = [];
 			uploadSuccess = true;
+			showToast('Painting added');
 			await loadAll();
 		} catch (err) {
 			uploadError = err instanceof Error ? err.message : String(err);
@@ -135,6 +147,7 @@
 		}
 		await deleteImagesByUrl(p.images);
 		paintings = paintings.filter((x) => x.id !== p.id);
+		showToast(`"${p.title}" deleted`);
 	}
 
 	// --- toggle availability ---
@@ -149,6 +162,7 @@
 			return;
 		}
 		paintings = paintings.map((x) => (x.id === p.id ? { ...x, avail: newAvail } : x));
+		showToast(`"${p.title}" marked ${newAvail ? 'available' : 'unavailable'}`);
 	}
 
 	// --- edit ---
@@ -208,6 +222,7 @@
 					: x
 			);
 			editingId = null;
+			showToast(`"${editTitle.trim() || p.title}" updated`);
 		} catch (err) {
 			editError = err instanceof Error ? err.message : String(err);
 		} finally {
@@ -233,6 +248,7 @@
 		paintings = paintings.map((x) =>
 			x.id === p.id ? { ...x, images: remaining, dimensions: remainingDims } : x
 		);
+		showToast('Image removed');
 	}
 
 	// --- inquiries ---
@@ -265,6 +281,7 @@
 		}
 		inquiries = inquiries.filter((x) => x.id !== inq.id);
 		if (expandedInquiryId === inq.id) expandedInquiryId = null;
+		showToast(`Inquiry from ${inq.first_name} ${inq.last_name} removed`);
 	}
 
 	async function markUnread(inq: Inquiry, e: MouseEvent) {
@@ -374,9 +391,6 @@
 				{#if uploadError}
 					<p class="error">{uploadError}</p>
 				{/if}
-				{#if uploadSuccess}
-					<p class="success">Painting added.</p>
-				{/if}
 
 				<button type="submit" disabled={uploading}>
 					{uploading ? 'Uploading…' : 'Add painting'}
@@ -399,8 +413,12 @@
 			</div>
 		{:else}
 			<div class="listings">
-				{#each paintings as p (p.id)}
-					<div class="listing" class:sold={!p.avail}>
+				{#each paintings as p, i (p.id)}
+					<div
+						class="listing"
+						class:sold={!p.avail}
+						style="animation-delay: {Math.min(i, 8) * 40}ms"
+					>
 						{#if editingId === p.id}
 							<div class="edit-form">
 								<label>
@@ -546,8 +564,11 @@
 			</div>
 		{:else}
 			<ul class="inquiries">
-				{#each inquiries as inq (inq.id)}
-					<li class:unread={!inq.read_at}>
+				{#each inquiries as inq, i (inq.id)}
+					<li
+						class:unread={!inq.read_at}
+						style="animation-delay: {Math.min(i, 10) * 35}ms"
+					>
 						<button class="inq-header" onclick={() => toggleInquiry(inq)}>
 							<span class="dot" aria-hidden="true"></span>
 							<span class="who">{inq.first_name} {inq.last_name}</span>
@@ -555,7 +576,7 @@
 							<span class="when">{formatDate(inq.created_at)}</span>
 						</button>
 						{#if expandedInquiryId === inq.id}
-							<div class="inq-body">
+							<div class="inq-body" transition:slide={{ duration: 220 }}>
 								<div class="contact-grid">
 									<div class="field">
 										<span class="field-label">Email</span>
@@ -598,6 +619,24 @@
 		{/if}
 		</div>
 	</details>
+{/if}
+
+{#if toast}
+	<div class="toast" role="status" aria-live="polite">
+		<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+			<circle cx="12" cy="12" r="10" fill="#2a5d2a" />
+			<path
+				d="M7 12l3.5 3.5L17 9"
+				fill="none"
+				stroke="#fff"
+				stroke-width="2.4"
+				stroke-linecap="round"
+				stroke-linejoin="round"
+			/>
+		</svg>
+		<span>{toast}</span>
+		<button class="toast-close" onclick={() => (toast = null)} aria-label="Dismiss">×</button>
+	</div>
 {/if}
 
 {#if progress}
@@ -767,8 +806,51 @@
 		color: #b00;
 	}
 
-	.success {
-		color: #2a5d2a;
+	/* ---- toast ---- */
+	.toast {
+		position: fixed;
+		top: 1.25rem;
+		left: 50%;
+		transform: translateX(-50%);
+		z-index: 1100;
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+		padding: 0.7rem 1rem 0.7rem 0.85rem;
+		background: #fff;
+		border: 1px solid #d5e0d5;
+		border-radius: 999px;
+		box-shadow: 0 6px 24px -8px rgba(0, 0, 0, 0.25);
+		font-size: 0.9rem;
+		color: #1a1a1a;
+		animation: toast-in 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
+		max-width: calc(100vw - 2rem);
+	}
+
+	.toast-close {
+		background: none;
+		border: none;
+		font-size: 1.2rem;
+		line-height: 1;
+		color: #999;
+		cursor: pointer;
+		padding: 0 0.2rem;
+		margin-left: 0.25rem;
+	}
+
+	.toast-close:hover {
+		color: #1a1a1a;
+	}
+
+	@keyframes toast-in {
+		from {
+			opacity: 0;
+			transform: translate(-50%, -12px);
+		}
+		to {
+			opacity: 1;
+			transform: translate(-50%, 0);
+		}
 	}
 
 	/* ---- upload overlay ---- */
@@ -1023,7 +1105,8 @@
 		border-radius: 8px;
 		background: #fff;
 		align-items: center;
-		transition: all 150ms ease;
+		transition: border-color 150ms ease, box-shadow 150ms ease;
+		animation: row-in 380ms cubic-bezier(0.16, 1, 0.3, 1) both;
 	}
 
 	.listing:hover {
@@ -1241,7 +1324,19 @@
 		border-radius: 8px;
 		background: #fff;
 		overflow: hidden;
-		transition: all 150ms ease;
+		transition: border-color 150ms ease, background 150ms ease;
+		animation: row-in 380ms cubic-bezier(0.16, 1, 0.3, 1) both;
+	}
+
+	@keyframes row-in {
+		from {
+			opacity: 0;
+			transform: translateY(8px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
 	}
 
 	.inquiries li:hover {
