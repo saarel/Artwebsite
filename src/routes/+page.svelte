@@ -168,7 +168,7 @@
 {#if data.error}
 	<p class="error">Could not load paintings: {data.error}</p>
 {:else if paintings.length === 0}
-	<p class="empty">No paintings yet.</p>
+	<p class="empty">Art coming soon.</p>
 {:else}
 	<div class="masonry">
 		{#each paintings as p (p.id)}
