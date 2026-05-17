@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
+	import { page } from '$app/state';
 	import type { Painting } from '$lib/types';
 	import { supabase } from '$lib/supabase';
 	import { AsYouType, isValidPhoneNumber, type CountryCode } from 'libphonenumber-js';
@@ -113,6 +115,9 @@
 	function close() {
 		selected = null;
 		resetForm();
+		if (typeof window !== 'undefined' && window.location.search) {
+			history.replaceState(null, '', window.location.pathname);
+		}
 	}
 
 	async function submitInquiry(e: SubmitEvent) {
@@ -157,9 +162,24 @@
 		if (e.key === 'ArrowRight') next();
 		if (e.key === 'ArrowLeft') prev();
 	}
+
+	onMount(() => {
+		const id = page.url.searchParams.get('painting');
+		if (!id) return;
+		const match = paintings.find((p) => p.id === id);
+		if (match) open(match);
+	});
 </script>
 
 <svelte:window on:keydown={onKey} />
+
+<nav class="site-nav">
+	<a href="/" class="brand">Grigory Orenbakh</a>
+	<div class="links">
+		<a href="/">About</a>
+		<a href="/gallery" aria-current="page">Gallery</a>
+	</div>
+</nav>
 
 <header>
 	<h1>Gallery</h1>
@@ -175,7 +195,14 @@
 			<button class="card" onclick={() => open(p)} aria-label={`Open ${p.title}`}>
 				<div class="thumb">
 					{#if p.images?.[0]}
-						<img src={p.images[0]} alt={p.title} loading="lazy" />
+						<img
+							src={p.images[0]}
+							alt={p.title}
+							width={p.dimensions?.[0]?.w || undefined}
+							height={p.dimensions?.[0]?.h || undefined}
+							loading="lazy"
+							decoding="async"
+						/>
 					{/if}
 					{#if p.sold}
 						<span class="sold-badge">SOLD</span>
@@ -329,8 +356,58 @@
 {/if}
 
 <style>
+	.site-nav {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 1.5rem 3rem;
+		max-width: 1400px;
+		margin: 0 auto;
+	}
+
+	.brand {
+		font-family: Georgia, 'Times New Roman', serif;
+		font-size: 1.1rem;
+		letter-spacing: 0.1em;
+		color: #1a2942;
+		text-decoration: none;
+		text-transform: uppercase;
+	}
+
+	.links {
+		display: flex;
+		gap: 2rem;
+	}
+
+	.links a {
+		color: #555;
+		text-decoration: none;
+		font-size: 0.85rem;
+		letter-spacing: 0.15em;
+		text-transform: uppercase;
+		padding-bottom: 0.25rem;
+		border-bottom: 1px solid transparent;
+		transition: color 120ms ease, border-color 120ms ease;
+	}
+
+	.links a:hover,
+	.links a[aria-current='page'] {
+		color: #1a2942;
+		border-bottom-color: #c8a571;
+	}
+
+	@media (max-width: 900px) {
+		.site-nav {
+			padding: 1.25rem 1.5rem;
+			flex-direction: column;
+			gap: 1rem;
+			align-items: center;
+		}
+		.links { gap: 1.5rem; }
+	}
+
 	header {
-		padding: 2rem 1.5rem 1rem;
+		padding: 1rem 1.5rem 1rem;
 		text-align: center;
 	}
 

@@ -59,7 +59,7 @@
 		const [pRes, iRes] = await Promise.all([
 			supabase
 				.from('paintings')
-				.select('id, title, medium, description, images, sold, created_at')
+				.select('id, title, medium, description, images, dimensions, sold, created_at')
 				.order('created_at', { ascending: false }),
 			supabase
 				.from('inquiries')
@@ -96,12 +96,13 @@
 		uploadSuccess = false;
 
 		try {
-			const urls = await uploadImages(newFiles);
+			const { urls, dimensions } = await uploadImages(newFiles);
 			const { error } = await supabase.from('paintings').insert({
 				title: newTitle.trim(),
 				medium: newMedium.trim(),
 				description: newDescription.trim() || null,
-				images: urls
+				images: urls,
+				dimensions
 			});
 			if (error) throw error;
 
@@ -165,9 +166,11 @@
 
 		try {
 			let images = p.images;
+			let dimensions = p.dimensions ?? [];
 			if (editAddFiles.length > 0) {
-				const added = await uploadImages(editAddFiles);
-				images = [...images, ...added];
+				const { urls: addedUrls, dimensions: addedDims } = await uploadImages(editAddFiles);
+				images = [...images, ...addedUrls];
+				dimensions = [...dimensions, ...addedDims];
 			}
 
 			const { error } = await supabase
@@ -176,7 +179,8 @@
 					title: editTitle.trim(),
 					medium: editMedium.trim(),
 					description: editDescription.trim() || null,
-					images
+					images,
+					dimensions
 				})
 				.eq('id', p.id);
 			if (error) throw error;
@@ -188,7 +192,8 @@
 							title: editTitle.trim(),
 							medium: editMedium.trim(),
 							description: editDescription.trim() || null,
-							images
+							images,
+							dimensions
 						}
 					: x
 			);
@@ -202,17 +207,21 @@
 
 	async function removeImage(p: Painting, url: string) {
 		if (!confirm('Remove this image?')) return;
-		const remaining = p.images.filter((u) => u !== url);
+		const idx = p.images.indexOf(url);
+		const remaining = p.images.filter((_, i) => i !== idx);
+		const remainingDims = (p.dimensions ?? []).filter((_, i) => i !== idx);
 		const { error } = await supabase
 			.from('paintings')
-			.update({ images: remaining })
+			.update({ images: remaining, dimensions: remainingDims })
 			.eq('id', p.id);
 		if (error) {
 			alert('Update failed: ' + error.message);
 			return;
 		}
 		await deleteImagesByUrl([url]);
-		paintings = paintings.map((x) => (x.id === p.id ? { ...x, images: remaining } : x));
+		paintings = paintings.map((x) =>
+			x.id === p.id ? { ...x, images: remaining, dimensions: remainingDims } : x
+		);
 	}
 
 	// --- inquiries ---

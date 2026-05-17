@@ -1,12 +1,34 @@
 import { supabase } from './supabase';
+import type { ImageDimension } from './types';
 
 const BUCKET = 'paintings';
 
-export async function uploadImages(files: File[]): Promise<string[]> {
+function readDimensions(file: File): Promise<ImageDimension> {
+	return new Promise((resolve, reject) => {
+		const url = URL.createObjectURL(file);
+		const img = new Image();
+		img.onload = () => {
+			resolve({ w: img.naturalWidth, h: img.naturalHeight });
+			URL.revokeObjectURL(url);
+		};
+		img.onerror = (e) => {
+			URL.revokeObjectURL(url);
+			reject(e);
+		};
+		img.src = url;
+	});
+}
+
+export async function uploadImages(
+	files: File[]
+): Promise<{ urls: string[]; dimensions: ImageDimension[] }> {
 	const folder = crypto.randomUUID();
 	const urls: string[] = [];
+	const dimensions: ImageDimension[] = [];
 
 	for (const file of files) {
+		const dim = await readDimensions(file).catch(() => ({ w: 0, h: 0 }));
+
 		const ext = file.name.split('.').pop()?.toLowerCase() ?? 'jpg';
 		const path = `${folder}/${crypto.randomUUID()}.${ext}`;
 
@@ -18,9 +40,10 @@ export async function uploadImages(files: File[]): Promise<string[]> {
 
 		const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
 		urls.push(data.publicUrl);
+		dimensions.push(dim);
 	}
 
-	return urls;
+	return { urls, dimensions };
 }
 
 export async function deleteImagesByUrl(urls: string[]): Promise<void> {

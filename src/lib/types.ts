@@ -1,9 +1,12 @@
+export type ImageDimension = { w: number; h: number };
+
 export type Painting = {
 	id: string;
 	title: string;
 	medium: string;
 	description: string | null;
 	images: string[];
+	dimensions: ImageDimension[];
 	sold: boolean;
 	created_at?: string;
 };

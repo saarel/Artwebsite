@@ -3,13 +3,13 @@ import type { Painting } from '$lib/types';
 import type { PageLoad } from './$types';
 
 export const load: PageLoad = async () => {
-	const { data, error } = await supabase
+	const { data } = await supabase
 		.from('paintings')
 		.select('id, title, medium, description, images, dimensions, sold, created_at')
-		.order('created_at', { ascending: false });
+		.order('created_at', { ascending: false })
+		.limit(1);
 
 	return {
-		paintings: (data ?? []) as Painting[],
-		error: error?.message ?? null
+		featured: (data?.[0] ?? null) as Painting | null
 	};
 };
