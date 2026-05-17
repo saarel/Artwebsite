@@ -6,7 +6,7 @@
 </script>
 
 <svelte:head>
-	<title>About · Artbygrigoryorenbakh</title>
+	<title>About · Art By Grigory Orenbakh</title>
 </svelte:head>
 
 <nav class="site-nav">

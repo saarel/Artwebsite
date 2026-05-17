@@ -303,7 +303,7 @@
 </script>
 
 <svelte:head>
-	<title>Admin · Artbygrigoryorenbakh</title>
+	<title>Admin · Art By Grigory Orenbakh</title>
 </svelte:head>
 
 <header>

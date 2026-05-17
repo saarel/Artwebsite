@@ -24,7 +24,7 @@
 </script>
 
 <svelte:head>
-	<title>Sign in · Artbygrigoryorenbakh</title>
+	<title>Sign in · Art By Grigory Orenbakh</title>
 </svelte:head>
 
 <div class="wrap">

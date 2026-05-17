@@ -22,7 +22,7 @@
 </script>
 
 <svelte:head>
-	<title>Artbygrigoryorenbakh</title>
+	<title>Art By Grigory Orenbakh</title>
 	<link rel="icon" href={favicon} />
 </svelte:head>
 
