@@ -23,6 +23,10 @@
 	}
 </script>
 
+<svelte:head>
+	<title>Sign in · Artbygrigoryorenbakh</title>
+</svelte:head>
+
 <div class="wrap">
 	<form onsubmit={login}>
 		<h1>Admin sign in</h1>

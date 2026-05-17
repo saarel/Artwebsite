@@ -250,9 +250,13 @@
 	const unreadCount = $derived(inquiries.filter((i) => !i.read_at).length);
 </script>
 
+<svelte:head>
+	<title>Admin · Artbygrigoryorenbakh</title>
+</svelte:head>
+
 <header>
 	<div class="header-left">
-		<h1>Studio</h1>
+		<h1>Admin</h1>
 		<a href="/" class="view-site">View site →</a>
 	</div>
 	<button class="logout" onclick={logout}>Sign out</button>
