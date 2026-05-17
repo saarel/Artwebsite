@@ -387,7 +387,12 @@
 	<div class="masonry">
 		{#each paintings as p, i (p.id)}
 			<button class="card" onclick={() => open(p)} aria-label={`Open ${p.title}`}>
-				<div class="thumb">
+				<div
+					class="thumb"
+					style="--ar: {p.dimensions?.[0]?.w && p.dimensions[0].h
+						? `${p.dimensions[0].w} / ${p.dimensions[0].h}`
+						: '4 / 5'};"
+				>
 					{#if p.images?.[0]}
 						<img
 							src={p.images[0]}
@@ -823,13 +828,17 @@
 
 	.thumb {
 		position: relative;
+		aspect-ratio: var(--ar, 4 / 5);
+		background: #ebe7df;
+		overflow: hidden;
+		border-radius: 2px;
 	}
 
 	.card img {
 		width: 100%;
-		height: auto;
+		height: 100%;
 		display: block;
-		border-radius: 2px;
+		object-fit: contain;
 	}
 
 	.sold-badge {

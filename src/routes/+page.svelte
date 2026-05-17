@@ -47,7 +47,12 @@
 	</section>
 
 	{#if featured}
-		<figure class="artwork">
+		<figure
+			class="artwork"
+			style="--ar: {featured.dimensions?.[0]?.w && featured.dimensions[0].h
+				? `${featured.dimensions[0].w} / ${featured.dimensions[0].h}`
+				: '4 / 5'};"
+		>
 			<a class="frame-link" href={`/gallery?painting=${featured.id}`} aria-label={`View ${featured.title}`}>
 				<div class="frame">
 					{#if featured.images?.[0]}
@@ -135,7 +140,7 @@
 		display: grid;
 		grid-template-columns: 1fr 1.2fr;
 		gap: 5rem;
-		align-items: center;
+		align-items: start;
 	}
 
 	/* ---- bio ---- */
@@ -239,12 +244,16 @@
 		display: inline-block;
 	}
 
+	.frame {
+		aspect-ratio: var(--ar, 4 / 5);
+		max-height: 75vh;
+	}
+
 	.frame img {
 		display: block;
-		max-width: 100%;
-		max-height: 75vh;
-		width: auto;
-		height: auto;
+		width: 100%;
+		height: 100%;
+		object-fit: contain;
 	}
 
 	figcaption {
