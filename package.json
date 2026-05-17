@@ -24,6 +24,7 @@
 	"dependencies": {
 		"@supabase/supabase-js": "^2.105.4",
 		"@vercel/analytics": "^2.0.1",
+		"@vercel/speed-insights": "^2.0.0",
 		"libphonenumber-js": "^1.13.2"
 	}
 }

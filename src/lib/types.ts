@@ -7,7 +7,7 @@ export type Painting = {
 	description: string | null;
 	images: string[];
 	dimensions: ImageDimension[];
-	sold: boolean;
+	avail: boolean;
 	created_at?: string;
 };
 

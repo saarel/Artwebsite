@@ -5,7 +5,7 @@ import type { PageLoad } from './$types';
 export const load: PageLoad = async () => {
 	const { data, error } = await supabase
 		.from('paintings')
-		.select('id, title, medium, description, images, dimensions, sold, created_at')
+		.select('id, title, medium, description, images, dimensions, avail, created_at')
 		.order('created_at', { ascending: false });
 
 	return {

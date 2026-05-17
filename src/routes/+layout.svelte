@@ -1,9 +1,11 @@
 <script lang="ts">
 	import favicon from '$lib/assets/favicon.svg';
 	import { injectAnalytics } from '@vercel/analytics/sveltekit';
+	import { injectSpeedInsights } from '@vercel/speed-insights/sveltekit';
 	import { onNavigate } from '$app/navigation';
 
 	injectAnalytics();
+	injectSpeedInsights();
 
 	onNavigate((navigation) => {
 		if (!document.startViewTransition) return;

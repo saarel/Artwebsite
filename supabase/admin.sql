@@ -1,10 +1,10 @@
 -- Sprint 3 additions. Safe to run on top of paintings + inquiries tables.
 
 ------------------------------------------------------------------
--- Paintings: track sold status
+-- Paintings: track availability
 ------------------------------------------------------------------
 alter table paintings
-  add column if not exists sold boolean not null default false;
+  add column if not exists avail boolean not null default true;
 
 ------------------------------------------------------------------
 -- Inquiries: track read/unread

@@ -3,7 +3,7 @@
 	import { page } from '$app/state';
 	import type { Painting } from '$lib/types';
 	import { supabase } from '$lib/supabase';
-	import { AsYouType, isValidPhoneNumber, type CountryCode } from 'libphonenumber-js';
+	import { AsYouType, isValidPhoneNumber, type CountryCode } from 'libphonenumber-js/min';
 
 	const DEFAULT_COUNTRY: CountryCode = 'US';
 	const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
@@ -191,7 +191,7 @@
 	<p class="empty">Art coming soon.</p>
 {:else}
 	<div class="masonry">
-		{#each paintings as p (p.id)}
+		{#each paintings as p, i (p.id)}
 			<button class="card" onclick={() => open(p)} aria-label={`Open ${p.title}`}>
 				<div class="thumb">
 					{#if p.images?.[0]}
@@ -200,12 +200,13 @@
 							alt={p.title}
 							width={p.dimensions?.[0]?.w || undefined}
 							height={p.dimensions?.[0]?.h || undefined}
-							loading="lazy"
+							loading={i < 6 ? 'eager' : 'lazy'}
+							fetchpriority={i < 3 ? 'high' : 'auto'}
 							decoding="async"
 						/>
 					{/if}
-					{#if p.sold}
-						<span class="sold-badge">SOLD</span>
+					{#if !p.avail}
+						<span class="sold-badge">No longer available</span>
 					{/if}
 				</div>
 				<div class="caption">
@@ -474,9 +475,11 @@
 		background: rgba(0, 0, 0, 0.78);
 		color: #fff;
 		font-size: 0.7rem;
-		letter-spacing: 0.15em;
-		padding: 0.25rem 0.55rem;
+		letter-spacing: 0.05em;
+		font-style: italic;
+		padding: 0.3rem 0.65rem;
 		border-radius: 2px;
+		font-family: Georgia, 'Times New Roman', serif;
 	}
 
 	.caption {

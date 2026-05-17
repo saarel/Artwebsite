@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { supabase } from '$lib/supabase';
-	import { uploadImages, deleteImagesByUrl } from '$lib/admin';
+	import { uploadImages, deleteImagesByUrl, type UploadProgress } from '$lib/admin';
 	import type { Painting, Inquiry } from '$lib/types';
 
 	// --- data ---
@@ -47,6 +47,9 @@
 		return URL.createObjectURL(file);
 	}
 
+	// --- upload progress (shared by new + edit) ---
+	let progress = $state<UploadProgress | null>(null);
+
 	// --- inquiry expansion ---
 	let expandedInquiryId = $state<string | null>(null);
 
@@ -59,13 +62,14 @@
 		const [pRes, iRes] = await Promise.all([
 			supabase
 				.from('paintings')
-				.select('id, title, medium, description, images, dimensions, sold, created_at')
+				.select('id, title, medium, description, images, dimensions, avail, created_at')
 				.order('created_at', { ascending: false }),
 			supabase
 				.from('inquiries')
 				.select(
 					'id, painting_id, first_name, last_name, email, phone, message, read_at, created_at, painting:paintings(id, title)'
 				)
+				.is('archived_at', null)
 				.order('created_at', { ascending: false })
 		]);
 
@@ -96,7 +100,8 @@
 		uploadSuccess = false;
 
 		try {
-			const { urls, dimensions } = await uploadImages(newFiles);
+			const { urls, dimensions } = await uploadImages(newFiles, (p) => (progress = p));
+			progress = null;
 			const { error } = await supabase.from('paintings').insert({
 				title: newTitle.trim(),
 				medium: newMedium.trim(),
@@ -116,6 +121,7 @@
 			uploadError = err instanceof Error ? err.message : String(err);
 		} finally {
 			uploading = false;
+			progress = null;
 		}
 	}
 
@@ -131,18 +137,18 @@
 		paintings = paintings.filter((x) => x.id !== p.id);
 	}
 
-	// --- toggle sold ---
-	async function toggleSold(p: Painting) {
-		const newSold = !p.sold;
+	// --- toggle availability ---
+	async function toggleAvail(p: Painting) {
+		const newAvail = !p.avail;
 		const { error } = await supabase
 			.from('paintings')
-			.update({ sold: newSold })
+			.update({ avail: newAvail })
 			.eq('id', p.id);
 		if (error) {
 			alert('Update failed: ' + error.message);
 			return;
 		}
-		paintings = paintings.map((x) => (x.id === p.id ? { ...x, sold: newSold } : x));
+		paintings = paintings.map((x) => (x.id === p.id ? { ...x, avail: newAvail } : x));
 	}
 
 	// --- edit ---
@@ -168,7 +174,11 @@
 			let images = p.images;
 			let dimensions = p.dimensions ?? [];
 			if (editAddFiles.length > 0) {
-				const { urls: addedUrls, dimensions: addedDims } = await uploadImages(editAddFiles);
+				const { urls: addedUrls, dimensions: addedDims } = await uploadImages(
+					editAddFiles,
+					(p) => (progress = p)
+				);
+				progress = null;
 				images = [...images, ...addedUrls];
 				dimensions = [...dimensions, ...addedDims];
 			}
@@ -202,6 +212,7 @@
 			editError = err instanceof Error ? err.message : String(err);
 		} finally {
 			editSaving = false;
+			progress = null;
 		}
 	}
 
@@ -239,6 +250,21 @@
 				inquiries = inquiries.map((x) => (x.id === inq.id ? { ...x, read_at: now } : x));
 			}
 		}
+	}
+
+	async function deleteInquiry(inq: Inquiry, e: MouseEvent) {
+		e.stopPropagation();
+		if (!confirm(`Remove this inquiry from ${inq.first_name} ${inq.last_name}?`)) return;
+		const { error } = await supabase
+			.from('inquiries')
+			.update({ archived_at: new Date().toISOString() })
+			.eq('id', inq.id);
+		if (error) {
+			alert('Failed to remove: ' + error.message);
+			return;
+		}
+		inquiries = inquiries.filter((x) => x.id !== inq.id);
+		if (expandedInquiryId === inq.id) expandedInquiryId = null;
 	}
 
 	async function markUnread(inq: Inquiry, e: MouseEvent) {
@@ -374,7 +400,7 @@
 		{:else}
 			<div class="listings">
 				{#each paintings as p (p.id)}
-					<div class="listing" class:sold={p.sold}>
+					<div class="listing" class:sold={!p.avail}>
 						{#if editingId === p.id}
 							<div class="edit-form">
 								<label>
@@ -472,15 +498,15 @@
 								{#if p.images?.[0]}
 									<img src={p.images[0]} alt={p.title} />
 								{/if}
-								{#if p.sold}
-									<span class="sold-tag">SOLD</span>
+								{#if !p.avail}
+									<span class="sold-tag">No longer available</span>
 								{/if}
 							</div>
 							<div class="meta">
 								<div class="title-row">
 									<div class="title">{p.title}</div>
-									<span class="status" class:status-sold={p.sold}>
-										{p.sold ? 'Sold' : 'Available'}
+									<span class="status" class:status-sold={!p.avail}>
+										{p.avail ? 'Available' : 'No longer available'}
 									</span>
 								</div>
 								<div class="medium">{p.medium}</div>
@@ -490,8 +516,8 @@
 							</div>
 							<div class="actions">
 								<button onclick={() => startEdit(p)}>Edit</button>
-								<button onclick={() => toggleSold(p)}>
-									{p.sold ? 'Mark available' : 'Mark sold'}
+								<button onclick={() => toggleAvail(p)}>
+									{p.avail ? 'Mark unavailable' : 'Mark available'}
 								</button>
 								<button class="danger" onclick={() => deletePainting(p)}>Delete</button>
 							</div>
@@ -530,14 +556,40 @@
 						</button>
 						{#if expandedInquiryId === inq.id}
 							<div class="inq-body">
-								<div class="contact">
-									<a href={`mailto:${inq.email}`}>{inq.email}</a> ·
-									<a href={`tel:${inq.phone}`}>{inq.phone}</a>
+								<div class="contact-grid">
+									<div class="field">
+										<span class="field-label">Email</span>
+										<a class="field-value" href={`mailto:${inq.email}`}>{inq.email}</a>
+									</div>
+									<div class="field">
+										<span class="field-label">Phone</span>
+										<a class="field-value" href={`tel:${inq.phone}`}>{inq.phone}</a>
+									</div>
 								</div>
-								<p class="message">{inq.message}</p>
-								{#if inq.read_at}
-									<button class="link" onclick={(e) => markUnread(inq, e)}>Mark unread</button>
-								{/if}
+
+								<div class="message-block">
+									<span class="field-label">Message</span>
+									<p class="message">{inq.message}</p>
+								</div>
+
+								<div class="inq-actions">
+									<a
+										class="primary-action"
+										href={`mailto:${inq.email}?subject=${encodeURIComponent(
+											`Re: ${inq.painting?.title ?? 'your inquiry'}`
+										)}&body=${encodeURIComponent(`Hi ${inq.first_name},\n\n`)}`}
+									>
+										Reply by email
+									</a>
+									{#if inq.read_at}
+										<button class="link" onclick={(e) => markUnread(inq, e)}>
+											Mark unread
+										</button>
+									{/if}
+									<button class="link danger" onclick={(e) => deleteInquiry(inq, e)}>
+										Delete
+									</button>
+								</div>
 							</div>
 						{/if}
 					</li>
@@ -546,6 +598,27 @@
 		{/if}
 		</div>
 	</details>
+{/if}
+
+{#if progress}
+	<div class="upload-overlay" role="status" aria-live="polite">
+		<div class="upload-card">
+			<div class="spinner" aria-hidden="true"></div>
+			<p class="upload-title">
+				{progress.phase === 'processing' ? 'Preparing image' : 'Uploading image'}
+				{progress.current} of {progress.total}
+			</p>
+			<div class="bar">
+				<div
+					class="bar-fill"
+					style="width: {((progress.current - (progress.phase === 'processing' ? 0.5 : 0)) /
+						progress.total) *
+						100}%"
+				></div>
+			</div>
+			<p class="upload-hint">Please don't close this tab.</p>
+		</div>
+	</div>
 {/if}
 
 <style>
@@ -696,6 +769,93 @@
 
 	.success {
 		color: #2a5d2a;
+	}
+
+	/* ---- upload overlay ---- */
+	.upload-overlay {
+		position: fixed;
+		inset: 0;
+		background: rgba(20, 18, 14, 0.55);
+		backdrop-filter: blur(4px);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 1000;
+		padding: 1rem;
+		animation: overlay-in 180ms ease both;
+	}
+
+	.upload-card {
+		background: #fff;
+		border-radius: 12px;
+		padding: 2rem 2.25rem;
+		max-width: 360px;
+		width: 100%;
+		text-align: center;
+		box-shadow: 0 20px 50px -10px rgba(0, 0, 0, 0.3);
+		animation: card-in 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+	}
+
+	.spinner {
+		width: 42px;
+		height: 42px;
+		margin: 0 auto 1.25rem;
+		border: 3px solid #ebe7df;
+		border-top-color: #1a1a1a;
+		border-radius: 50%;
+		animation: spin 0.8s linear infinite;
+	}
+
+	.upload-title {
+		margin: 0 0 0.85rem;
+		font-weight: 500;
+		color: #1a1a1a;
+	}
+
+	.bar {
+		height: 4px;
+		background: #ebe7df;
+		border-radius: 999px;
+		overflow: hidden;
+		margin-bottom: 0.85rem;
+	}
+
+	.bar-fill {
+		height: 100%;
+		background: #1a1a1a;
+		transition: width 250ms ease;
+	}
+
+	.upload-hint {
+		margin: 0;
+		font-size: 0.8rem;
+		color: #888;
+	}
+
+	@keyframes spin {
+		to {
+			transform: rotate(360deg);
+		}
+	}
+
+	@keyframes overlay-in {
+		from {
+			opacity: 0;
+		}
+		to {
+			opacity: 1;
+		}
+	}
+
+	@keyframes card-in {
+		from {
+			opacity: 0;
+			transform: translateY(8px) scale(0.98);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0) scale(1);
+		}
 	}
 
 	/* ---- file picker / camera ---- */
@@ -897,11 +1057,12 @@
 		left: 0.4rem;
 		background: rgba(0, 0, 0, 0.82);
 		color: #fff;
-		font-size: 0.65rem;
-		letter-spacing: 0.15em;
-		padding: 0.2rem 0.55rem;
+		font-size: 0.62rem;
+		letter-spacing: 0.04em;
+		padding: 0.22rem 0.55rem;
 		border-radius: 3px;
-		font-weight: 600;
+		font-style: italic;
+		font-family: Georgia, 'Times New Roman', serif;
 	}
 
 	.meta {
@@ -924,14 +1085,14 @@
 
 	.status {
 		display: inline-block;
-		padding: 0.15rem 0.55rem;
+		padding: 0.18rem 0.7rem;
 		font-size: 0.7rem;
-		letter-spacing: 0.05em;
+		letter-spacing: 0.03em;
 		font-weight: 600;
 		border-radius: 999px;
 		background: #e8f0e8;
 		color: #2a5d2a;
-		text-transform: uppercase;
+		white-space: nowrap;
 	}
 
 	.status-sold {
@@ -1142,31 +1303,88 @@
 	}
 
 	.inq-body {
-		padding: 0.9rem 1.1rem 1.1rem 2.85rem;
+		padding: 1.1rem 1.25rem 1.25rem 2.85rem;
 		border-top: 1px solid #f0ecdc;
+		background: #fdfcf8;
 	}
 
-	.contact {
-		font-size: 0.9rem;
-		color: #555;
-		margin-bottom: 0.6rem;
+	.contact-grid {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 1rem 1.5rem;
+		padding-bottom: 1rem;
+		margin-bottom: 1rem;
+		border-bottom: 1px solid #f0ecdc;
 	}
 
-	.contact a {
+	.field {
+		display: flex;
+		flex-direction: column;
+		gap: 0.2rem;
+		min-width: 0;
+	}
+
+	.field-label {
+		font-size: 0.7rem;
+		letter-spacing: 0.1em;
+		text-transform: uppercase;
+		color: #999;
+		font-weight: 600;
+	}
+
+	.field-value {
+		font-size: 0.95rem;
 		color: #1a1a1a;
 		text-decoration: none;
-		border-bottom: 1px solid #ddd;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
-	.contact a:hover {
-		border-bottom-color: #333;
+	.field-value:hover {
+		text-decoration: underline;
+		text-decoration-color: #c8a571;
+		text-underline-offset: 3px;
+	}
+
+	.message-block {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		margin-bottom: 1.25rem;
 	}
 
 	.message {
 		white-space: pre-wrap;
-		line-height: 1.55;
-		margin: 0 0 0.6rem;
-		color: #333;
+		line-height: 1.65;
+		margin: 0;
+		color: #2a2a2a;
+		padding: 0.85rem 1rem;
+		background: #fff;
+		border-radius: 6px;
+		border-left: 3px solid #c8a571;
+		font-size: 0.95rem;
+	}
+
+	.inq-actions {
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+	}
+
+	.primary-action {
+		display: inline-block;
+		padding: 0.55rem 1.2rem;
+		background: #1a1a1a;
+		color: #fff;
+		text-decoration: none;
+		border-radius: 999px;
+		font: 500 0.85rem -apple-system, sans-serif;
+		transition: background 120ms ease;
+	}
+
+	.primary-action:hover {
+		background: #333;
 	}
 
 	.link {
@@ -1182,6 +1400,15 @@
 
 	.link:hover {
 		color: #1a1a1a;
+	}
+
+	.link.danger {
+		color: #b00;
+		margin-left: auto;
+	}
+
+	.link.danger:hover {
+		color: #800;
 	}
 
 	@media (max-width: 700px) {
@@ -1229,6 +1456,14 @@
 		}
 		.inq-body {
 			padding-left: 1.1rem;
+			padding-right: 1.1rem;
+		}
+		.contact-grid {
+			grid-template-columns: 1fr;
+			gap: 0.85rem;
+		}
+		.inq-actions {
+			flex-wrap: wrap;
 		}
 	}
 </style>
