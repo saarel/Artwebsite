@@ -14,6 +14,7 @@
 
 	let selected = $state<Painting | null>(null);
 	let imageIndex = $state(0);
+	let showInquiry = $state(false);
 
 	let firstName = $state('');
 	let lastName = $state('');
@@ -110,14 +111,23 @@
 		selected = p;
 		imageIndex = 0;
 		resetForm();
+		showInquiry = false;
+		// Defer mounting the inquiry form so the modal can paint immediately.
+		requestAnimationFrame(() => {
+			if (selected) showInquiry = true;
+		});
 	}
 
 	function close() {
 		selected = null;
-		resetForm();
-		if (typeof window !== 'undefined' && window.location.search) {
-			history.replaceState(null, '', window.location.pathname);
-		}
+		showInquiry = false;
+		// Defer URL + form cleanup off the critical interaction path.
+		requestAnimationFrame(() => {
+			resetForm();
+			if (typeof window !== 'undefined' && window.location.search) {
+				history.replaceState(null, '', window.location.pathname);
+			}
+		});
 	}
 
 	async function submitInquiry(e: SubmitEvent) {
@@ -254,6 +264,7 @@
 					<p>{selected.description}</p>
 				{/if}
 
+				{#if showInquiry}
 				<div class="inquiry">
 					<h3>Inquire about this piece</h3>
 
@@ -351,6 +362,7 @@
 						</form>
 					{/if}
 				</div>
+				{/if}
 			</div>
 		</div>
 	</div>
