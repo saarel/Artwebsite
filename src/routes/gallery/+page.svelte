@@ -1033,11 +1033,11 @@
 		transition: transform 250ms ease;
 		will-change: transform;
 		user-select: none;
-		touch-action: none;
 	}
 
 	.zoomable.zoomed {
 		cursor: grab;
+		touch-action: none;
 	}
 
 	.zoomable.zoomed.dragging {
