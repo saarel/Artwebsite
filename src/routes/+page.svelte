@@ -301,14 +301,6 @@
 	@media (max-width: 900px) {
 		.site-nav {
 			padding: 1.25rem 1.5rem;
-			flex-direction: column;
-			gap: 1rem;
-			align-items: center;
-			text-align: center;
-		}
-
-		.links {
-			gap: 1.5rem;
 		}
 
 		main {
@@ -332,6 +324,18 @@
 
 		.frame {
 			padding: 12px;
+		}
+	}
+
+	@media (max-width: 520px) {
+		.site-nav {
+			flex-direction: column;
+			gap: 0.75rem;
+			align-items: center;
+			text-align: center;
+		}
+		.links {
+			gap: 1.5rem;
 		}
 	}
 

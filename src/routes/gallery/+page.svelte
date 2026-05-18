@@ -66,6 +66,9 @@
 	let selected = $state<Painting | null>(null);
 	let imageIndex = $state(0);
 	let showInquiry = $state(false);
+	// Tracks whether we own a pushed history entry for the open modal so
+	// closing can pop it (instead of leaving dead URLs in history).
+	let hasPushedState = false;
 	let zoomed = $state(false);
 	let zoomOrigin = $state({ x: 50, y: 50 });
 	let pan = $state({ x: 0, y: 0 });
@@ -171,6 +174,20 @@
 		zoomed = false;
 		resetForm();
 		showInquiry = false;
+		// Update URL so the modal is shareable. We only push one history entry
+		// per "modal session" — subsequent modal switches just replace it.
+		if (typeof window !== 'undefined') {
+			const url = new URL(window.location.href);
+			if (url.searchParams.get('painting') !== p.id) {
+				url.searchParams.set('painting', p.id);
+				if (hasPushedState) {
+					history.replaceState({ painting: p.id }, '', url);
+				} else {
+					history.pushState({ painting: p.id }, '', url);
+					hasPushedState = true;
+				}
+			}
+		}
 		// Defer mounting the inquiry form so the modal can paint immediately.
 		requestAnimationFrame(() => {
 			if (selected) showInquiry = true;
@@ -180,11 +197,17 @@
 	function close() {
 		selected = null;
 		showInquiry = false;
-		// Defer URL + form cleanup off the critical interaction path.
 		requestAnimationFrame(() => {
 			resetForm();
-			if (typeof window !== 'undefined' && window.location.search) {
-				history.replaceState(null, '', window.location.pathname);
+			if (typeof window === 'undefined') return;
+			if (hasPushedState) {
+				// Pop the entry we pushed so back button skips it cleanly.
+				history.back();
+				hasPushedState = false;
+			} else if (window.location.search) {
+				const url = new URL(window.location.href);
+				url.searchParams.delete('painting');
+				history.replaceState(null, '', url.pathname + url.search);
 			}
 		});
 	}
@@ -308,9 +331,26 @@
 
 	onMount(() => {
 		const id = page.url.searchParams.get('painting');
-		if (!id) return;
-		const match = paintings.find((p) => p.id === id);
-		if (match) open(match);
+		if (id) {
+			const match = paintings.find((p) => p.id === id);
+			if (match) open(match);
+		}
+
+		const onPop = () => {
+			const newId = new URL(window.location.href).searchParams.get('painting');
+			if (!newId) {
+				// Back / forward landed on the bare gallery URL — close modal.
+				selected = null;
+				showInquiry = false;
+				hasPushedState = false;
+				resetForm();
+				return;
+			}
+			const match = paintings.find((p) => p.id === newId);
+			if (match && selected?.id !== match.id) open(match);
+		};
+		window.addEventListener('popstate', onPop);
+		return () => window.removeEventListener('popstate', onPop);
 	});
 </script>
 
@@ -700,8 +740,13 @@
 	@media (max-width: 900px) {
 		.site-nav {
 			padding: 1.25rem 1.5rem;
+		}
+	}
+
+	@media (max-width: 520px) {
+		.site-nav {
 			flex-direction: column;
-			gap: 1rem;
+			gap: 0.75rem;
 			align-items: center;
 		}
 		.links { gap: 1.5rem; }
@@ -880,7 +925,8 @@
 		align-items: center;
 		justify-content: center;
 		z-index: 1000;
-		padding: 1rem;
+		padding: calc(1rem + env(safe-area-inset-top)) calc(1rem + env(safe-area-inset-right))
+			calc(1rem + env(safe-area-inset-bottom)) calc(1rem + env(safe-area-inset-left));
 		animation: backdrop-in 200ms ease-out both;
 	}
 
@@ -888,7 +934,7 @@
 		background: #fff;
 		max-width: 1100px;
 		width: 100%;
-		max-height: 95vh;
+		max-height: 95dvh;
 		overflow-y: auto;
 		border-radius: 4px;
 		position: relative;
