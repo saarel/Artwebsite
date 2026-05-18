@@ -573,6 +573,9 @@
 			{/if}
 
 			<div class="details">
+				{#if !selected.avail}
+					<span class="status-pill">No longer available</span>
+				{/if}
 				<h2>{selected.title}</h2>
 				<div class="medium">{selected.medium}</div>
 				{#if selected.description}
@@ -1126,6 +1129,19 @@
 
 	.details {
 		padding: 1rem 1.5rem 1.5rem;
+	}
+
+	.status-pill {
+		display: inline-block;
+		padding: 0.2rem 0.65rem;
+		margin-bottom: 0.5rem;
+		background: #f7e8d8;
+		color: #8a4a14;
+		font-size: 0.7rem;
+		font-weight: 600;
+		letter-spacing: 0.04em;
+		border-radius: 999px;
+		white-space: nowrap;
 	}
 
 	.details h2 {
