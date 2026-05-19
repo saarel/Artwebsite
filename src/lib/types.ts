@@ -11,9 +11,12 @@ export type Painting = {
 	created_at?: string;
 };
 
+export type InquiryType = 'inquiry' | 'commission';
+
 export type Inquiry = {
 	id: string;
-	painting_id: string;
+	painting_id: string | null;
+	type: InquiryType;
 	first_name: string;
 	last_name: string;
 	email: string;

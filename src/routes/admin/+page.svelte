@@ -78,7 +78,7 @@
 			supabase
 				.from('inquiries')
 				.select(
-					'id, painting_id, first_name, last_name, email, phone, message, read_at, created_at, painting:paintings(id, title)'
+					'id, painting_id, type, first_name, last_name, email, phone, message, read_at, created_at, painting:paintings(id, title)'
 				)
 				.is('archived_at', null)
 				.order('created_at', { ascending: false })
@@ -571,8 +571,17 @@
 					>
 						<button class="inq-header" onclick={() => toggleInquiry(inq)}>
 							<span class="dot" aria-hidden="true"></span>
-							<span class="who">{inq.first_name} {inq.last_name}</span>
-							<span class="about">re: {inq.painting?.title ?? '(deleted painting)'}</span>
+							<span class="who">
+								{inq.first_name} {inq.last_name}
+								<span class="type-tag" class:type-commission={inq.type === 'commission'}>
+									{inq.type === 'commission' ? 'Commission' : 'Inquiry'}
+								</span>
+							</span>
+							<span class="about">
+								{inq.type === 'commission'
+									? 'Custom commission request'
+									: `re: ${inq.painting?.title ?? '(deleted painting)'}`}
+							</span>
 							<span class="when">{formatDate(inq.created_at)}</span>
 						</button>
 						{#if expandedInquiryId === inq.id}
@@ -597,7 +606,9 @@
 									<a
 										class="primary-action"
 										href={`mailto:${inq.email}?subject=${encodeURIComponent(
-											`Re: ${inq.painting?.title ?? 'your inquiry'}`
+											inq.type === 'commission'
+												? 'Re: your commission request'
+												: `Re: ${inq.painting?.title ?? 'your inquiry'}`
 										)}&body=${encodeURIComponent(`Hi ${inq.first_name},\n\n`)}`}
 									>
 										Reply by email
@@ -1381,6 +1392,27 @@
 	.who {
 		font-weight: 500;
 		color: #1a1a1a;
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+	}
+
+	.type-tag {
+		display: inline-block;
+		padding: 0.12rem 0.5rem;
+		font-size: 0.65rem;
+		font-weight: 600;
+		letter-spacing: 0.05em;
+		text-transform: uppercase;
+		border-radius: 999px;
+		background: #e8eef5;
+		color: #1a4878;
+	}
+
+	.type-tag.type-commission {
+		background: #f4ebd9;
+		color: #7a5a14;
 	}
 
 	.about {

@@ -69,6 +69,7 @@
 	// Tracks whether we own a pushed history entry for the open modal so
 	// closing can pop it (instead of leaving dead URLs in history).
 	let hasPushedState = false;
+
 	let zoomed = $state(false);
 	let zoomOrigin = $state({ x: 50, y: 50 });
 	let pan = $state({ x: 0, y: 0 });
@@ -243,6 +244,7 @@
 
 		const { error } = await supabase.from('inquiries').insert({
 			painting_id: selected.id,
+			type: 'inquiry',
 			first_name: firstName.trim(),
 			last_name: lastName.trim(),
 			email: email.trim(),
@@ -685,6 +687,7 @@
 		</div>
 	</div>
 {/if}
+
 
 <style>
 	.site-nav {
@@ -1227,18 +1230,20 @@
 
 	.submit {
 		align-self: center;
-		padding: 0.65rem 2rem;
-		background: #111;
+		padding: 0.7rem 2rem;
+		background: #c8a571;
 		color: #fff;
 		border: none;
 		border-radius: 999px;
 		cursor: pointer;
 		font: inherit;
-		transition: background 120ms ease;
+		transition: background 120ms ease, box-shadow 120ms ease;
+		box-shadow: 0 1px 4px rgba(200, 165, 113, 0.4);
 	}
 
 	.submit:hover:not(:disabled) {
-		background: #333;
+		background: #b89460;
+		box-shadow: 0 2px 8px rgba(200, 165, 113, 0.5);
 	}
 
 	.submit:disabled {
