@@ -3,11 +3,19 @@
 	import { goto } from '$app/navigation';
 	import { slide } from 'svelte/transition';
 	import { supabase } from '$lib/supabase';
-	import { uploadImages, deleteImagesByUrl, type UploadProgress } from '$lib/admin';
-	import type { Painting, Inquiry } from '$lib/types';
+	import {
+		uploadImages,
+		deleteImagesByUrl,
+		setPaintingCollections,
+		type UploadProgress
+	} from '$lib/admin';
+	import { fetchCollections, fetchPaintings, fetchSiteSettings, uniqueSlug } from '$lib/queries';
+	import BulkUpload from '$lib/BulkUpload.svelte';
+	import type { Collection, FeaturedMode, Painting, Inquiry } from '$lib/types';
 
 	// --- data ---
 	let paintings = $state<Painting[]>([]);
+	let collections = $state<Collection[]>([]);
 	let inquiries = $state<Inquiry[]>([]);
 	let loading = $state(true);
 	let loadError = $state<string | null>(null);
@@ -16,6 +24,7 @@
 	let newTitle = $state('');
 	let newMedium = $state('');
 	let newDescription = $state('');
+	let newCollectionIds = $state<string[]>([]);
 	let newFiles = $state<File[]>([]);
 	let uploading = $state(false);
 	let uploadError = $state<string | null>(null);
@@ -26,9 +35,26 @@
 	let editTitle = $state('');
 	let editMedium = $state('');
 	let editDescription = $state('');
+	let editCollectionIds = $state<string[]>([]);
 	let editAddFiles = $state<File[]>([]);
 	let editSaving = $state(false);
 	let editError = $state<string | null>(null);
+
+	// --- collections ---
+	let newCollectionName = $state('');
+	let newCollectionDescription = $state('');
+	let collectionSaving = $state(false);
+	let collectionError = $state<string | null>(null);
+	let editingCollectionId = $state<string | null>(null);
+	let cName = $state('');
+	let cDescription = $state('');
+	let cCover = $state<string>(''); // '' = auto (newest piece in the collection)
+
+	// --- about page feature ---
+	let featuredMode = $state<FeaturedMode>('latest');
+	let featuredPaintingId = $state<string | null>(null);
+	let featuredSaving = $state(false);
+	let featuredError = $state<string | null>(null);
 
 	function addFiles(target: 'new' | 'edit', e: Event) {
 		const input = e.target as HTMLInputElement;
@@ -70,11 +96,10 @@
 		loading = true;
 		loadError = null;
 
-		const [pRes, iRes] = await Promise.all([
-			supabase
-				.from('paintings')
-				.select('id, title, medium, description, images, dimensions, avail, created_at')
-				.order('created_at', { ascending: false }),
+		const [pRes, cRes, sRes, iRes] = await Promise.all([
+			fetchPaintings(),
+			fetchCollections(),
+			fetchSiteSettings(),
 			supabase
 				.from('inquiries')
 				.select(
@@ -84,8 +109,11 @@
 				.order('created_at', { ascending: false })
 		]);
 
-		if (pRes.error) loadError = pRes.error.message;
-		else paintings = (pRes.data ?? []) as Painting[];
+		if (pRes.error) loadError = pRes.error;
+		paintings = pRes.paintings;
+		collections = cRes;
+		featuredMode = sRes.featured_mode;
+		featuredPaintingId = sRes.featured_painting_id;
 
 		if (iRes.error) loadError = (loadError ? loadError + ' / ' : '') + iRes.error.message;
 		else inquiries = (iRes.data ?? []) as unknown as Inquiry[];
@@ -113,18 +141,27 @@
 		try {
 			const { urls, dimensions } = await uploadImages(newFiles, (p) => (progress = p));
 			progress = null;
-			const { error } = await supabase.from('paintings').insert({
-				title: newTitle.trim(),
-				medium: newMedium.trim(),
-				description: newDescription.trim() || null,
-				images: urls,
-				dimensions
-			});
+			const { data, error } = await supabase
+				.from('paintings')
+				.insert({
+					title: newTitle.trim(),
+					medium: newMedium.trim(),
+					description: newDescription.trim() || null,
+					images: urls,
+					dimensions
+				})
+				.select('id')
+				.single();
 			if (error) throw error;
+
+			if (newCollectionIds.length > 0 && data) {
+				await setPaintingCollections(data.id, newCollectionIds);
+			}
 
 			newTitle = '';
 			newMedium = '';
 			newDescription = '';
+			newCollectionIds = [];
 			newFiles = [];
 			uploadSuccess = true;
 			showToast('Painting added');
@@ -171,8 +208,13 @@
 		editTitle = p.title;
 		editMedium = p.medium;
 		editDescription = p.description ?? '';
+		editCollectionIds = [...p.collection_ids];
 		editAddFiles = [];
 		editError = null;
+	}
+
+	function toggleId(list: string[], id: string): string[] {
+		return list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
 	}
 
 	function cancelEdit() {
@@ -209,6 +251,9 @@
 				.eq('id', p.id);
 			if (error) throw error;
 
+			await setPaintingCollections(p.id, editCollectionIds);
+
+			const savedCollectionIds = [...editCollectionIds];
 			paintings = paintings.map((x) =>
 				x.id === p.id
 					? {
@@ -217,7 +262,8 @@
 							medium: editMedium.trim(),
 							description: editDescription.trim() || null,
 							images,
-							dimensions
+							dimensions,
+							collection_ids: savedCollectionIds
 						}
 					: x
 			);
@@ -250,6 +296,179 @@
 		);
 		showToast('Image removed');
 	}
+
+	// --- collections ---
+	function paintingsIn(collectionId: string) {
+		return paintings.filter((p) => p.collection_ids.includes(collectionId));
+	}
+
+	async function createCollection(e: SubmitEvent) {
+		e.preventDefault();
+		const name = newCollectionName.trim();
+		if (!name) {
+			collectionError = 'Give the collection a name.';
+			return;
+		}
+
+		collectionSaving = true;
+		collectionError = null;
+
+		const { data, error } = await supabase
+			.from('collections')
+			.insert({
+				name,
+				slug: uniqueSlug(
+					name,
+					collections.map((c) => c.slug)
+				),
+				description: newCollectionDescription.trim() || null,
+				position: collections.length
+			})
+			.select('id, name, slug, description, cover_url, position, created_at')
+			.single();
+
+		collectionSaving = false;
+
+		if (error) {
+			collectionError = error.message;
+			return;
+		}
+
+		collections = [...collections, data as Collection];
+		newCollectionName = '';
+		newCollectionDescription = '';
+		showToast(`Collection "${name}" created`);
+	}
+
+	function startEditCollection(c: Collection) {
+		editingCollectionId = c.id;
+		cName = c.name;
+		cDescription = c.description ?? '';
+		cCover = c.cover_url ?? '';
+		collectionError = null;
+	}
+
+	function cancelEditCollection() {
+		editingCollectionId = null;
+		collectionError = null;
+	}
+
+	async function saveCollection(c: Collection) {
+		const name = cName.trim();
+		if (!name) {
+			collectionError = 'Give the collection a name.';
+			return;
+		}
+
+		collectionSaving = true;
+		collectionError = null;
+
+		// Keep the slug (and any shared links) stable unless the name changed.
+		const slug =
+			name === c.name
+				? c.slug
+				: uniqueSlug(
+						name,
+						collections.filter((x) => x.id !== c.id).map((x) => x.slug)
+					);
+
+		const patch = {
+			name,
+			slug,
+			description: cDescription.trim() || null,
+			cover_url: cCover || null
+		};
+
+		const { error } = await supabase.from('collections').update(patch).eq('id', c.id);
+		collectionSaving = false;
+
+		if (error) {
+			collectionError = error.message;
+			return;
+		}
+
+		collections = collections.map((x) => (x.id === c.id ? { ...x, ...patch } : x));
+		editingCollectionId = null;
+		showToast(`"${name}" updated`);
+	}
+
+	async function deleteCollection(c: Collection) {
+		const count = paintingsIn(c.id).length;
+		const warning = count
+			? `Delete "${c.name}"? The ${count} painting${count === 1 ? '' : 's'} in it stay in the gallery — they just lose this tag.`
+			: `Delete "${c.name}"?`;
+		if (!confirm(warning)) return;
+
+		const { error } = await supabase.from('collections').delete().eq('id', c.id);
+		if (error) {
+			alert('Delete failed: ' + error.message);
+			return;
+		}
+
+		collections = collections.filter((x) => x.id !== c.id);
+		paintings = paintings.map((p) => ({
+			...p,
+			collection_ids: p.collection_ids.filter((id) => id !== c.id)
+		}));
+		if (editingCollectionId === c.id) editingCollectionId = null;
+		showToast(`"${c.name}" deleted`);
+	}
+
+	async function moveCollection(c: Collection, direction: -1 | 1) {
+		const i = collections.findIndex((x) => x.id === c.id);
+		const j = i + direction;
+		if (i < 0 || j < 0 || j >= collections.length) return;
+
+		const reordered = [...collections];
+		[reordered[i], reordered[j]] = [reordered[j], reordered[i]];
+		collections = reordered.map((x, idx) => ({ ...x, position: idx }));
+
+		const { error } = await supabase
+			.from('collections')
+			.upsert(collections.map((x) => ({ id: x.id, name: x.name, slug: x.slug, position: x.position })));
+		if (error) {
+			alert('Reorder failed: ' + error.message);
+			await loadAll();
+		}
+	}
+
+	// --- about page feature ---
+	async function saveFeatured() {
+		if (featuredMode === 'manual' && !featuredPaintingId) {
+			featuredError = 'Pick a painting, or switch back to "latest".';
+			return;
+		}
+
+		featuredSaving = true;
+		featuredError = null;
+
+		const { error } = await supabase
+			.from('site_settings')
+			.update({
+				featured_mode: featuredMode,
+				featured_painting_id: featuredMode === 'manual' ? featuredPaintingId : null,
+				updated_at: new Date().toISOString()
+			})
+			.eq('id', 1);
+
+		featuredSaving = false;
+
+		if (error) {
+			featuredError = error.message;
+			return;
+		}
+		showToast(
+			featuredMode === 'latest'
+				? 'About page will show your latest painting'
+				: 'About page image set'
+		);
+	}
+
+	const featuredPainting = $derived(
+		featuredMode === 'manual'
+			? (paintings.find((p) => p.id === featuredPaintingId) ?? null)
+			: (paintings[0] ?? null)
+	);
 
 	// --- inquiries ---
 	async function toggleInquiry(inq: Inquiry) {
@@ -346,6 +565,25 @@
 					<textarea bind:value={newDescription} rows="3" disabled={uploading}></textarea>
 				</label>
 
+				{#if collections.length > 0}
+					<div class="tag-field">
+						<span class="file-label">Collections</span>
+						<div class="chips">
+							{#each collections as c (c.id)}
+								<button
+									type="button"
+									class="chip"
+									class:on={newCollectionIds.includes(c.id)}
+									disabled={uploading}
+									onclick={() => (newCollectionIds = toggleId(newCollectionIds, c.id))}
+								>
+									{c.name}
+								</button>
+							{/each}
+						</div>
+					</div>
+				{/if}
+
 				<div class="file-field">
 					<span class="file-label">Images</span>
 					<div class="file-buttons">
@@ -399,6 +637,216 @@
 		</div>
 	</details>
 
+	<!-- ============= BULK UPLOAD ============= -->
+	<details class="section">
+		<summary>
+			<span class="caret" aria-hidden="true">›</span>
+			Bulk upload
+		</summary>
+		<div class="section-body">
+			<BulkUpload {collections} ondone={loadAll} ontoast={showToast} />
+		</div>
+	</details>
+
+	<!-- ============= COLLECTIONS ============= -->
+	<details class="section">
+		<summary>
+			<span class="caret" aria-hidden="true">›</span>
+			Collections ({collections.length})
+		</summary>
+		<div class="section-body">
+			<form onsubmit={createCollection} class="upload-form collection-form">
+				<div class="new-collection-row">
+					<label>
+						<span>New collection</span>
+						<input
+							type="text"
+							bind:value={newCollectionName}
+							disabled={collectionSaving}
+							placeholder="e.g. Judaica"
+						/>
+					</label>
+					<label>
+						<span>Description (optional)</span>
+						<input
+							type="text"
+							bind:value={newCollectionDescription}
+							disabled={collectionSaving}
+							placeholder="Shown under the collection title"
+						/>
+					</label>
+					<button type="submit" disabled={collectionSaving}>
+						{collectionSaving ? 'Saving…' : 'Add collection'}
+					</button>
+				</div>
+				{#if collectionError && !editingCollectionId}
+					<p class="error">{collectionError}</p>
+				{/if}
+			</form>
+
+			{#if collections.length === 0}
+				<div class="empty">
+					<p>No collections yet.</p>
+					<p class="hint">
+						Create one above, then tag paintings into it from Listings or the bulk uploader.
+					</p>
+				</div>
+			{:else}
+				<div class="listings collection-list">
+					{#each collections as c, i (c.id)}
+						{@const members = paintingsIn(c.id)}
+						<div class="listing collection-row">
+							{#if editingCollectionId === c.id}
+								<div class="edit-form">
+									<label>
+										<span>Name</span>
+										<input type="text" bind:value={cName} disabled={collectionSaving} />
+									</label>
+									<label>
+										<span>Description</span>
+										<textarea bind:value={cDescription} rows="2" disabled={collectionSaving}
+										></textarea>
+									</label>
+									<label>
+										<span>Cover image</span>
+										<select bind:value={cCover} disabled={collectionSaving}>
+											<option value="">Newest painting in the collection</option>
+											{#each members as m (m.id)}
+												{#if m.images?.[0]}
+													<option value={m.images[0]}>{m.title}</option>
+												{/if}
+											{/each}
+										</select>
+									</label>
+
+									{#if collectionError}
+										<p class="error">{collectionError}</p>
+									{/if}
+
+									<div class="edit-actions">
+										<button
+											type="button"
+											onclick={() => saveCollection(c)}
+											disabled={collectionSaving}
+										>
+											{collectionSaving ? 'Saving…' : 'Save'}
+										</button>
+										<button
+											type="button"
+											class="secondary"
+											onclick={cancelEditCollection}
+											disabled={collectionSaving}
+										>
+											Cancel
+										</button>
+									</div>
+								</div>
+							{:else}
+								<div class="thumb">
+									{#if c.cover_url}
+										<img src={c.cover_url} alt="" />
+									{:else if members.find((m) => m.images?.[0])}
+										<img src={members.find((m) => m.images?.[0])?.images[0]} alt="" />
+									{/if}
+								</div>
+								<div class="meta">
+									<div class="title-row">
+										<div class="title">{c.name}</div>
+										<span class="status collection-count">
+											{members.length}
+											{members.length === 1 ? 'piece' : 'pieces'}
+										</span>
+									</div>
+									<div class="medium">/collections/{c.slug}</div>
+									{#if c.description}
+										<div class="count">{c.description}</div>
+									{/if}
+								</div>
+								<div class="actions">
+									<div class="reorder">
+										<button
+											class="tiny"
+											onclick={() => moveCollection(c, -1)}
+											disabled={i === 0}
+											aria-label="Move up">↑</button
+										>
+										<button
+											class="tiny"
+											onclick={() => moveCollection(c, 1)}
+											disabled={i === collections.length - 1}
+											aria-label="Move down">↓</button
+										>
+									</div>
+									<button onclick={() => startEditCollection(c)}>Edit</button>
+									<a class="link-btn" href={`/collections/${c.slug}`} target="_blank">View</a>
+									<button class="danger" onclick={() => deleteCollection(c)}>Delete</button>
+								</div>
+							{/if}
+						</div>
+					{/each}
+				</div>
+			{/if}
+		</div>
+	</details>
+
+	<!-- ============= ABOUT PAGE IMAGE ============= -->
+	<details class="section">
+		<summary>
+			<span class="caret" aria-hidden="true">›</span>
+			About page image
+		</summary>
+		<div class="section-body">
+			<div class="featured">
+				<div class="featured-controls">
+					<label class="radio">
+						<input type="radio" bind:group={featuredMode} value="latest" disabled={featuredSaving} />
+						<span>
+							<strong>Use my latest painting</strong>
+							<em>Updates itself every time you add a new piece.</em>
+						</span>
+					</label>
+					<label class="radio">
+						<input type="radio" bind:group={featuredMode} value="manual" disabled={featuredSaving} />
+						<span>
+							<strong>Pick one myself</strong>
+							<em>Stays put until you change it.</em>
+						</span>
+					</label>
+
+					{#if featuredMode === 'manual'}
+						<label>
+							<span>Painting</span>
+							<select bind:value={featuredPaintingId} disabled={featuredSaving}>
+								<option value={null}>Choose a painting…</option>
+								{#each paintings as p (p.id)}
+									<option value={p.id}>{p.title}</option>
+								{/each}
+							</select>
+						</label>
+					{/if}
+
+					{#if featuredError}
+						<p class="error">{featuredError}</p>
+					{/if}
+
+					<button type="button" class="save-featured" onclick={saveFeatured} disabled={featuredSaving}>
+						{featuredSaving ? 'Saving…' : 'Save'}
+					</button>
+				</div>
+
+				<div class="featured-preview">
+					<span class="file-label">Currently showing</span>
+					{#if featuredPainting?.images?.[0]}
+						<img src={featuredPainting.images[0]} alt={featuredPainting.title} />
+						<div class="featured-title">{featuredPainting.title}</div>
+					{:else}
+						<div class="featured-none">Nothing to show yet.</div>
+					{/if}
+				</div>
+			</div>
+		</div>
+	</details>
+
 	<!-- ============= LISTINGS ============= -->
 	<details class="section" open>
 		<summary>
@@ -433,6 +881,25 @@
 									<span>Description</span>
 									<textarea bind:value={editDescription} rows="3" disabled={editSaving}></textarea>
 								</label>
+
+								{#if collections.length > 0}
+									<div class="tag-field">
+										<span class="file-label">Collections</span>
+										<div class="chips">
+											{#each collections as c (c.id)}
+												<button
+													type="button"
+													class="chip"
+													class:on={editCollectionIds.includes(c.id)}
+													disabled={editSaving}
+													onclick={() => (editCollectionIds = toggleId(editCollectionIds, c.id))}
+												>
+													{c.name}
+												</button>
+											{/each}
+										</div>
+									</div>
+								{/if}
 
 								<div class="image-grid">
 									{#each p.images as img (img)}
@@ -531,6 +998,13 @@
 								<div class="count">
 									{p.images.length} image{p.images.length === 1 ? '' : 's'}
 								</div>
+								{#if p.collection_ids.length > 0}
+									<div class="tag-badges">
+										{#each collections.filter((c) => p.collection_ids.includes(c.id)) as c (c.id)}
+											<span class="tag-badge">{c.name}</span>
+										{/each}
+									</div>
+								{/if}
 							</div>
 							<div class="actions">
 								<button onclick={() => startEdit(p)}>Edit</button>
@@ -1100,6 +1574,272 @@
 		cursor: not-allowed;
 	}
 
+	select {
+		font: 400 1rem/1.4 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+		padding: 0.6rem 0.85rem;
+		border: 1px solid #d6d2c8;
+		border-radius: 6px;
+		background: #fff;
+		color: #1a1a1a;
+		text-transform: none;
+		letter-spacing: normal;
+		max-width: 420px;
+	}
+
+	/* ---- collection tag chips ---- */
+	.tag-field {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.chips {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.4rem;
+	}
+
+	.chip {
+		border: 1px solid #ded8cc;
+		background: #fff;
+		border-radius: 999px;
+		padding: 0.35rem 0.85rem;
+		font: 500 0.82rem -apple-system, sans-serif;
+		color: #666;
+		cursor: pointer;
+		transition: all 120ms ease;
+	}
+
+	.chip:hover:not(:disabled) {
+		border-color: #c8a571;
+		color: #1a1a1a;
+	}
+
+	.chip.on {
+		background: #1a2942;
+		border-color: #1a2942;
+		color: #fff;
+	}
+
+	.chip:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.tag-badges {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.3rem;
+		margin-top: 0.4rem;
+	}
+
+	.tag-badge {
+		font-size: 0.7rem;
+		padding: 0.15rem 0.55rem;
+		border-radius: 999px;
+		background: #eef1f6;
+		color: #1a2942;
+		letter-spacing: 0.02em;
+	}
+
+	/* ---- collections section ---- */
+	.collection-form {
+		max-width: none;
+		margin-bottom: 1.25rem;
+	}
+
+	.new-collection-row {
+		display: grid;
+		grid-template-columns: minmax(180px, 1fr) minmax(220px, 1.4fr) auto;
+		gap: 0.75rem;
+		align-items: end;
+	}
+
+	.new-collection-row button {
+		align-self: end;
+		padding: 0.68rem 1.4rem;
+		background: #1a1a1a;
+		color: #fff;
+		border: none;
+		border-radius: 999px;
+		cursor: pointer;
+		font: 500 0.9rem -apple-system, sans-serif;
+		white-space: nowrap;
+		transition: background 120ms ease;
+	}
+
+	.new-collection-row button:hover:not(:disabled) {
+		background: #333;
+	}
+
+	.new-collection-row button:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.collection-row .thumb {
+		width: 130px;
+		height: 90px;
+	}
+
+	.collection-count {
+		background: #eef1f6;
+		color: #1a2942;
+	}
+
+	.collection-row .medium {
+		font-style: normal;
+		font-size: 0.8rem;
+		color: #999;
+		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+	}
+
+	.reorder {
+		display: flex;
+		gap: 0.25rem;
+	}
+
+	.actions .tiny {
+		padding: 0.35rem 0.6rem;
+		line-height: 1;
+		font-size: 0.9rem;
+	}
+
+	.actions .tiny:disabled {
+		opacity: 0.35;
+		cursor: not-allowed;
+	}
+
+	.link-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		font: 500 0.85rem -apple-system, sans-serif;
+		padding: 0.45rem 0.95rem;
+		border: 1px solid #d6d2c8;
+		background: #fff;
+		border-radius: 999px;
+		cursor: pointer;
+		color: #1a1a1a;
+		text-decoration: none;
+		transition: all 120ms ease;
+		white-space: nowrap;
+	}
+
+	.link-btn:hover {
+		border-color: #333;
+		background: #faf9f6;
+	}
+
+	/* ---- about page feature ---- */
+	.featured {
+		display: grid;
+		grid-template-columns: 1fr 240px;
+		gap: 2rem;
+		align-items: start;
+	}
+
+	.featured-controls {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+
+	.radio {
+		flex-direction: row;
+		align-items: flex-start;
+		gap: 0.65rem;
+		text-transform: none;
+		letter-spacing: normal;
+		font-size: 0.95rem;
+		color: #1a1a1a;
+		cursor: pointer;
+		padding: 0.75rem 1rem;
+		border: 1px solid #ebe7df;
+		border-radius: 8px;
+		transition: border-color 120ms ease;
+	}
+
+	.radio:hover {
+		border-color: #d6d2c8;
+	}
+
+	.radio input {
+		margin-top: 0.2rem;
+		accent-color: #1a2942;
+		width: 1rem;
+		height: 1rem;
+	}
+
+	.radio span {
+		display: flex;
+		flex-direction: column;
+		gap: 0.15rem;
+	}
+
+	.radio strong {
+		font-weight: 500;
+	}
+
+	.radio em {
+		font-style: normal;
+		font-size: 0.82rem;
+		color: #888;
+	}
+
+	.save-featured {
+		align-self: flex-start;
+		padding: 0.65rem 1.5rem;
+		background: #1a1a1a;
+		color: #fff;
+		border: none;
+		border-radius: 999px;
+		cursor: pointer;
+		font: 500 0.9rem -apple-system, sans-serif;
+		transition: background 120ms ease;
+	}
+
+	.save-featured:hover:not(:disabled) {
+		background: #333;
+	}
+
+	.save-featured:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.featured-preview {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.featured-preview img {
+		width: 100%;
+		aspect-ratio: 4 / 5;
+		object-fit: contain;
+		background: #f4f2ee;
+		border: 1px solid #ebe7df;
+		border-radius: 8px;
+		display: block;
+	}
+
+	.featured-title {
+		font-size: 0.88rem;
+		color: #555;
+		font-style: italic;
+	}
+
+	.featured-none {
+		padding: 2rem 1rem;
+		text-align: center;
+		color: #aaa;
+		font-size: 0.88rem;
+		background: #faf9f6;
+		border: 1px dashed #e0dcd4;
+		border-radius: 8px;
+	}
+
 	/* ---- listings ---- */
 	.listings {
 		display: flex;
@@ -1591,6 +2331,20 @@
 		}
 		.inq-actions {
 			flex-wrap: wrap;
+		}
+		.new-collection-row {
+			grid-template-columns: 1fr;
+		}
+		.collection-row .thumb {
+			width: 90px;
+			height: 70px;
+		}
+		.featured {
+			grid-template-columns: 1fr;
+			gap: 1.25rem;
+		}
+		.featured-preview {
+			max-width: 220px;
 		}
 	}
 </style>

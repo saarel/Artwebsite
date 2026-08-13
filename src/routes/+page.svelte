@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { Painting } from '$lib/types';
 	import { supabase } from '$lib/supabase';
+	import SiteNav from '$lib/SiteNav.svelte';
 	import { AsYouType, isValidPhoneNumber, type CountryCode } from 'libphonenumber-js/min';
 
 	const DEFAULT_COUNTRY: CountryCode = 'US';
@@ -112,13 +113,7 @@
 	<title>About · Art By Grigory Orenbakh</title>
 </svelte:head>
 
-<nav class="site-nav">
-	<a href="/" class="brand">Grigory Orenbakh</a>
-	<div class="links">
-		<a href="/" aria-current="page">About</a>
-		<a href="/gallery">Gallery</a>
-	</div>
-</nav>
+<SiteNav current="about" />
 
 <main>
 	<section class="bio">
@@ -304,59 +299,6 @@
 		background: #f4f0e8;
 		color: #1a1a1a;
 		font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-	}
-
-	.site-nav {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		padding: 1.5rem 3rem;
-		max-width: 1400px;
-		margin: 0 auto;
-	}
-
-	.brand {
-		font-family: Georgia, 'Times New Roman', serif;
-		font-size: 1.1rem;
-		letter-spacing: 0.1em;
-		color: #1a2942;
-		text-decoration: none;
-		text-transform: uppercase;
-	}
-
-	.links {
-		display: flex;
-		gap: 2rem;
-	}
-
-	.links a {
-		position: relative;
-		color: #555;
-		text-decoration: none;
-		font-size: 0.85rem;
-		letter-spacing: 0.15em;
-		text-transform: uppercase;
-		padding-bottom: 0.35rem;
-		transition: color 180ms ease;
-	}
-
-	.links a:hover {
-		color: #1a2942;
-	}
-
-	.links a[aria-current='page'] {
-		color: #1a2942;
-	}
-
-	.links a[aria-current='page']::after {
-		content: '';
-		position: absolute;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		height: 1.5px;
-		background: #c8a571;
-		view-transition-name: nav-indicator;
 	}
 
 	main {
@@ -747,10 +689,6 @@
 
 	/* ---- responsive ---- */
 	@media (max-width: 900px) {
-		.site-nav {
-			padding: 1.25rem 1.5rem;
-		}
-
 		main {
 			grid-template-columns: 1fr;
 			gap: 3rem;
@@ -772,18 +710,6 @@
 
 		.frame {
 			padding: 12px;
-		}
-	}
-
-	@media (max-width: 520px) {
-		.site-nav {
-			flex-direction: column;
-			gap: 0.75rem;
-			align-items: center;
-			text-align: center;
-		}
-		.links {
-			gap: 1.5rem;
 		}
 	}
 

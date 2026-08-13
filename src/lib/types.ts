@@ -9,6 +9,26 @@ export type Painting = {
 	dimensions: ImageDimension[];
 	avail: boolean;
 	created_at?: string;
+	/** Ids of every collection this painting is tagged into. */
+	collection_ids: string[];
+};
+
+export type Collection = {
+	id: string;
+	name: string;
+	slug: string;
+	description: string | null;
+	/** Manually chosen cover. When null the newest painting in the collection is used. */
+	cover_url: string | null;
+	position: number;
+	created_at?: string;
+};
+
+export type FeaturedMode = 'latest' | 'manual';
+
+export type SiteSettings = {
+	featured_mode: FeaturedMode;
+	featured_painting_id: string | null;
 };
 
 export type InquiryType = 'inquiry' | 'commission';

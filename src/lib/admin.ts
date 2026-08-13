@@ -90,6 +90,28 @@ export async function uploadImages(
 	return { urls, dimensions };
 }
 
+/**
+ * Replaces a painting's collection tags with exactly `collectionIds`.
+ * Clear-then-insert: the join table is tiny and this keeps the call idempotent.
+ */
+export async function setPaintingCollections(
+	paintingId: string,
+	collectionIds: string[]
+): Promise<void> {
+	const { error: deleteError } = await supabase
+		.from('painting_collections')
+		.delete()
+		.eq('painting_id', paintingId);
+	if (deleteError) throw deleteError;
+
+	if (collectionIds.length === 0) return;
+
+	const { error } = await supabase
+		.from('painting_collections')
+		.insert(collectionIds.map((collection_id) => ({ painting_id: paintingId, collection_id })));
+	if (error) throw error;
+}
+
 export async function deleteImagesByUrl(urls: string[]): Promise<void> {
 	const paths = urls
 		.map((u) => u.match(/\/storage\/v1\/object\/public\/paintings\/(.+)$/)?.[1])
