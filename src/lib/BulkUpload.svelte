@@ -6,11 +6,14 @@
 	let {
 		collections,
 		ondone,
-		ontoast
+		ontoast,
+		compact = false
 	}: {
 		collections: Collection[];
 		ondone: () => Promise<void> | void;
 		ontoast: (message: string) => void;
+		/** Toolbar mode: just the buttons, no explanatory blurb. */
+		compact?: boolean;
 	} = $props();
 
 	type Item = {
@@ -198,19 +201,23 @@
 	}
 </script>
 
-<div class="bulk">
-	<p class="lead">
-		Pick a batch of photos and name them one at a time — each photo becomes its own painting.
-	</p>
+<div class="bulk" class:compact>
+	{#if !compact}
+		<p class="lead">
+			Pick a batch of photos and name them one at a time — each photo becomes its own painting.
+		</p>
+	{/if}
 	<div class="file-buttons">
 		<label class="file-btn">
-			Choose photos
+			{compact ? 'Bulk upload' : 'Choose photos'}
 			<input type="file" accept="image/*" multiple onchange={pickFiles} />
 		</label>
-		<label class="file-btn">
-			Take photo
-			<input type="file" accept="image/*" capture="environment" onchange={pickFiles} />
-		</label>
+		{#if !compact}
+			<label class="file-btn">
+				Take photo
+				<input type="file" accept="image/*" capture="environment" onchange={pickFiles} />
+			</label>
+		{/if}
 	</div>
 </div>
 
@@ -348,6 +355,10 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0.85rem;
+	}
+
+	.bulk.compact {
+		display: contents;
 	}
 
 	.lead {
